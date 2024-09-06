@@ -1,0 +1,234 @@
+---
+title: "Robustness"
+author: "Camille Robertson"
+date: "2023-04-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import and Clean Data
+
+```{r}
+library(readr)
+
+# import data from csv file and subset germany data
+wvs <- read_csv("WVS Cross-National Wave 7.csv")
+germany <- wvs[wvs$B_COUNTRY_ALPHA == "DEU",]
+```
+
+```{r}
+# clean the immigration question from negative values
+germany$immigration <- NA
+germany$immigration[germany$Q121 >= 1 & germany$Q121 <= 5] <- 
+  germany$Q121[germany$Q121 >= 1 & germany$Q121 <= 5]
+
+# validate values
+table(germany$immigration)
+
+# clean the financial question from negative values
+germany$financial <- NA
+germany$financial[germany$Q50 >= 1 & germany$Q50 <= 10] <- 
+  germany$Q50[germany$Q50 >= 1 & germany$Q50 <= 10]
+
+# validate values
+table(germany$financial)
+
+# clean the democracy question from negative values
+germany$democracy <- NA
+germany$democracy[germany$Q250 >= 1 & germany$Q250 <= 10] <- 
+  germany$Q250[germany$Q250 >= 1 & germany$Q250 <= 10]
+
+# validate values
+table(germany$democracy)
+
+# create a binary variable from the trust question
+germany$trust <- NA
+germany$trust[germany$Q57 == 1] <- 1
+germany$trust[germany$Q57 == 2] <- 0
+
+table(germany$trust)
+```
+### Visualization
+
+```{r}
+color <- c("lightblue2", "darkseagreen2", "slategray3", "lavenderblush2", "pink2")
+borders <- c("lightblue3", "darkseagreen3", "slategray4", "lavenderblush3", "pink3")
+
+# display the range of responses for each question
+
+barplot(table(germany$immigration), col = color, border = borders,
+        xlab = "Response Choices",
+        ylab = "Number of Responses",
+        family = "Times New Roman")
+```
+
+```{r}
+barplot(table(germany$financial), col = color, border = borders,
+        xlab = "Response Choices",
+        ylab = "Number of Responses",
+        family = "Times New Roman")
+```
+
+```{r}
+barplot(table(germany$democracy), col = color, border = borders,
+        xlab = "Response Choices",
+        ylab = "Number of Responses",
+        family = "Times New Roman")
+```
+
+Create a data set with only the columns we will be focusing on:
+```{r}
+germany_data <- data.frame(germany$immigration, germany$financial, germany$democracy, germany$trust)
+colnames(germany_data) <- c("Immigration", "Financial", "Democracy", "Trust")
+
+# display a statistical summary for each variable
+summary(germany_data$Immigration)
+summary(germany_data$Financial)
+summary(germany_data$Democracy)
+```
+
+## Logistic Regression
+
+```{r}
+# create a logistic regression model with trust as the response variable
+model <- glm(Trust ~ Immigration + Financial + Democracy, data = germany_data, family = "binomial")
+summary(model)
+```
+
+
+## Robustness
+
+### Model 2
+```{r}
+# create a new independent variable for views on income equality
+table(germany$Q106)
+
+germany$income <- NA
+germany$income[germany$Q106 >= 1 & germany$Q106 <= 10] <- germany$Q106[germany$Q106 >= 1 & germany$Q106 <= 10]
+
+#validate values
+table(germany$income)
+
+# add column to germany data set
+germany_data = cbind(germany_data, germany$income)
+colnames(germany_data)[5] <- "Income_Equality"
+```
+
+Create another logistic regression model with the additional variable
+```{r}
+model2 <- glm(Trust ~ Immigration + Financial + Democracy + Income_Equality, data = germany_data, 
+              family = "binomial")
+summary(model2)
+```
+
+### Model 3
+```{r}
+# create a new independent variable for levels of education
+table(germany$Q275)
+
+germany$education <- NA
+germany$education[germany$Q275 >= 0 & germany$Q275 <= 8] <- germany$Q275[germany$Q275 >= 0 & germany$Q275 <= 8]
+
+# validate values
+table(germany$education)
+
+# add column to germany data set
+germany_data = cbind(germany_data, germany$education)
+colnames(germany_data)[6] <- "Education"
+```
+
+Create another logistic regression model with the additional variable
+```{r}
+model3 <- glm(Trust ~ Immigration + Financial + Democracy + Income_Equality + Education, 
+              data = germany_data, 
+              family = "binomial")
+summary(model3)
+```
+
+### Pseudo R-Squared
+```{r}
+library(pscl)
+pR2(model)
+pR2(model2)
+pR2(model3)
+```
+
+## Comparison of Models
+```{r}
+library(jtools)
+library(huxtable)
+
+# create a table to visualize the contrast between the models
+export_summs(model, model2, model3, error_format = "", 
+             model.names = c("Model 1", "Model 2", "Model 3"), 
+             coefs = c("Views on Immigration" = "Immigration",
+                       "Financial Satisfaction" = "Financial",
+                       "Belief in Democracy" = "Democracy",
+                       "Views on Income Equality" = "Income_Equality",
+                       "Level of Education" = "Education"))
+```
+
+### Coefficients and Odds Ratios
+```{r}
+library(gt)
+
+# get the coefficients from each model
+coefs_model1 <- c(coef(model)[["Immigration"]], coef(model)[["Financial"]],
+                  coef(model)[["Democracy"]], NA, NA)
+
+coefs_model2 <- c(coef(model2)[["Immigration"]], coef(model2)[["Financial"]],
+                  coef(model2)[["Democracy"]], coef(model2)[["Income_Equality"]], NA)
+
+coefs_model3 <- c(coef(model3)[["Immigration"]], coef(model3)[["Financial"]],
+                  coef(model3)[["Democracy"]], coef(model3)[["Income_Equality"]],
+                  coef(model3)[["Education"]])
+
+# calculate the odds ratio for each variable in each model
+OR_model1 <- exp(coefs_model1)
+OR_model2 <- exp(coefs_model2)
+OR_model3 <- exp(coefs_model3)
+
+# get all the variable names for the column
+Variable <- c(variable.names(model3)[2:6])
+
+# create a data frame with the coefficients and odds ratios
+coef_OR <- data.frame(Variable, coefs_model1, OR_model1, coefs_model2, OR_model2, coefs_model3,
+                      OR_model3)
+```
+
+Organize the coefficients and odds ratios for each model in a table
+```{r}
+coef_OR_tbl <- gt(coef_OR)
+coef_OR_tbl <- 
+  coef_OR_tbl |>
+  tab_spanner(
+    label = "Model 1",
+    columns = c(coefs_model1, OR_model1)
+  ) |>
+  tab_spanner(
+    label = "Model 2",
+    columns = c(coefs_model2, OR_model2)
+  ) |>
+  tab_spanner(
+    label = "Model 3",
+    columns = c(coefs_model3, OR_model3)
+  ) |>
+  cols_label(
+    coefs_model1 = "Coefficient",
+    OR_model1 = "Odds Ratio",
+    coefs_model2 = "Coefficient",
+    OR_model2 = "Odds Ratio",
+    coefs_model3 = "Coefficient",
+    OR_model3 = "Odds Ratio"
+  ) |>
+  fmt_number(
+    columns = 2:7,
+    decimals = 2
+  )
+
+coef_OR_tbl
+```
+

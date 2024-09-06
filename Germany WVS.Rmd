@@ -1,0 +1,181 @@
+---
+title: "Germany WVS"
+author: "Camille Robertson"
+date: "2023-04-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import data into DataFrame
+```{r}
+library(readr)
+
+wvs <- read_csv("WVS Cross-National Wave 7.csv")
+```
+
+Create variable with only German observations
+```{r}
+germany <- wvs[wvs$B_COUNTRY_ALPHA == "DEU",]
+```
+
+View values for each variable question
+```{r}
+table(germany$Q121)
+table(germany$Q50)
+table(germany$Q250)
+table(germany$Q57)
+```
+Create new column for Q121 without negative values
+```{r}
+germany$immigration <- NA
+germany$immigration[germany$Q121 >= 1 & germany$Q121 <= 5] <- germany$Q121[germany$Q121 >= 1 & germany$Q121 <= 5]
+
+table(germany$immigration)
+
+```
+
+Create new column for Q50 without negative values
+```{r}
+germany$financial <- NA
+germany$financial[germany$Q50 >= 1 & germany$Q50 <= 10] <- germany$Q50[germany$Q50 >= 1 & germany$Q50 <= 10]
+
+table(germany$financial)
+```
+
+Create new column for Q250 without negative values
+```{r}
+germany$democracy <- NA
+germany$democracy[germany$Q250 >= 1 & germany$Q250 <= 10] <- germany$Q250[germany$Q250 >= 1 & germany$Q250 <= 10]
+
+table(germany$democracy)
+```
+
+Create a new column for trust variable with binary values
+```{r}
+germany$trust <- NA
+germany$trust[germany$Q57 == 1] <- 1
+germany$trust[germany$Q57 == 2] <- 0
+
+table(germany$trust)
+```
+
+
+Create a dataframe with each new column
+```{r}
+germany_data <- data.frame(germany$immigration, germany$financial, germany$democracy, germany$trust)
+colnames(germany_data) <- c("Immigration", "Financial", "Democracy", "Trust")
+```
+
+Create a logistic regression model with trust as dependent variable
+```{r}
+model <- glm(Trust ~ Immigration + Financial + Democracy, data = germany_data, family = "binomial")
+summary(model)
+```
+
+Visualize logistic regression model with table
+```{r}
+library(jtools)
+library(huxtable)
+
+export_summs(model, error_format = "(p = {p.value})", model.names = "Model", 
+             coefs = c("Views on Immigration" = "Immigration",
+                       "Financial Satisfaction" = "Financial",
+                       "Belief in Democracy" = "Democracy"))
+```
+
+Calculate the Odds Ratios for each of the independent variables
+```{r}
+library(gt)
+
+coef <- c(coefficients(model)[["Immigration"]], coefficients(model)[["Financial"]],
+          coefficients(model)[["Democracy"]])
+
+or <- exp(coef)
+
+variables <- c(variable.names(model)[2:4])
+
+odds_ratio <- data.frame(variables, coef, or)
+colnames(odds_ratio) <- c("Independent Variable", "Coefficient", "Odds Ratio")
+
+odds_ratio
+```
+
+Make some prediction using the logistic model for different values of the independent variables
+```{r}
+df <- data.frame(Immigration = seq(min(germany_data$Immigration, na.rm = TRUE),
+                                   max(germany_data$Immigration, na.rm = TRUE),
+                                   len = 500),
+                 Financial = seq(min(germany_data$Financial, na.rm = TRUE),
+                                 max(germany_data$Financial, na.rm = TRUE),
+                                 len = 500),
+                 Democracy = seq(min(germany_data$Democracy, na.rm = TRUE),
+                                 max(germany_data$Democracy, na.rm = TRUE),
+                                 len = 500))
+
+df$Predict <- predict(model, df, type = "response")
+```
+
+Plot the sigmoid function
+
+```{r}
+library(ggplot2)
+
+ggplot(germany_data, aes(x = Immigration, y = Trust)) + 
+  labs(x = "Views on Immigration", y = "Pr(Generalized Trust)") +
+  theme_light(base_family = "Times New Roman", base_size = 12) + geom_point(shape = 1) + 
+  stat_smooth(method = "glm", method.args = list(family="binomial"), color = "darkseagreen4",
+              fill = "darkseagreen3")
+```
+
+```{r}
+ggplot(germany_data, aes(x = Financial, y = Trust)) + 
+  labs(x = "Financial Satisfaction", y = "Pr(Generalized Trust)") +
+  theme_light(base_family = "Times New Roman", base_size = 12) + geom_point(shape = 1) + 
+  scale_x_continuous(breaks = seq(1, 10, 1)) +
+  stat_smooth(method = "glm", method.args = list(family="binomial"), color = "darkseagreen4",
+              fill = "darkseagreen3")
+```
+
+```{r}
+ggplot(germany_data, aes(x = Democracy, y = Trust)) + 
+  labs(x = "Belief in Democracy", y = "Pr(Generalized Trust)") +
+  theme_light(base_family = "Times New Roman", base_size = 12) + geom_point(shape = 1) + 
+  scale_x_continuous(breaks = seq(1, 10, 1)) +
+  stat_smooth(method = "glm", method.args = list(family="binomial"), color = "darkseagreen4",
+              fill = "darkseagreen3")
+```
+
+
+
+```{r}
+plot(Trust ~ Immigration, data = germany_data,
+     xlab = "Views on Immigration",
+     ylab = "Pr(Generalized Trust)",
+     family = "Times New Roman")
+lines(Predict ~ Immigration, df, lwd = 3, col = "darkseagreen3")
+```
+
+```{r}
+plot(Trust ~ Financial, data = germany_data,
+     xlab = "Financial Satisfaction",
+     ylab = "Pr(Generalized Trust)",
+     family = "Times New Roman")
+lines(Predict ~ Financial, df, lwd = 3, col = "darkseagreen3")
+```
+
+```{r}
+plot(Trust ~ Democracy, data = germany_data,
+     xlab = "Belief in Democracy",
+     ylab = "Pr(Generalized Trust)",
+     family = "Times New Roman")
+lines(Predict ~ Democracy, df, lwd = 3, col = "darkseagreen3")
+```
+
+```{r}
+library(pscl)
+pR2(model)["McFadden"]
+```
+
